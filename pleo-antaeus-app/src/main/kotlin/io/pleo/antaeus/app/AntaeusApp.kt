@@ -24,6 +24,8 @@ import org.jetbrains.exposed.sql.transactions.transaction
 import setupInitialData
 import java.io.File
 import java.sql.Connection
+import java.util.*
+import kotlin.concurrent.scheduleAtFixedRate
 
 fun main() {
     // The tables to create in the database.
@@ -63,6 +65,10 @@ fun main() {
     // This is _your_ billing service to be included where you see fit
     val billingService = BillingService(paymentProvider = paymentProvider)
 
+    // schedule tasks
+    Timer().scheduleAtFixedRate(0, 24 * 60 * 60 * 1000) {
+        billingService.paySubscriptions(dal)
+    }
     // Create REST web service
     AntaeusRest(
         invoiceService = invoiceService,
