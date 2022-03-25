@@ -4,6 +4,7 @@ import io.pleo.antaeus.core.external.PaymentProvider
 import io.pleo.antaeus.data.AntaeusDal
 import java.util.*
 import io.pleo.antaeus.core.exceptions.*
+import io.pleo.antaeus.models.*
 
 
 class BillingService(
@@ -19,25 +20,37 @@ class BillingService(
         if (day != 1) {
             return
         }
-        //get invoices, charge
-        val invoices = dal.fetchInvoices()
+        //get invoices, process
+        val invoices = dal.fetchPending()
         for (invoice in invoices) {
-            //charge, handle errors
-            try {
-                val complete = paymentProvider.charge(invoice)
-            }
-            catch(e: CustomerNotFoundException) {
-                println("handle")
-            }
-            catch(e: CurrencyMismatchException) {
-                println("handle")
-            }
-            catch(e: NetworkException) {
-                println("handle")
-            }
-            finally {
-                //change invoice status
+            var complete = process(invoice)
+            if (complete) {
+                dal.markPaid(invoice)
             }
         }
     }
+
+
+    private fun process(invoice: Invoice): Boolean {
+        var complete = false
+        try {
+            complete = paymentProvider.charge(invoice)
+            return complete
+        }
+        catch(e: CustomerNotFoundException) {
+            //do nothing/delete invoice
+            println("handle")
+        }
+        catch(e: CurrencyMismatchException) {
+            //fix currency, try again
+            println("handle")
+        }
+        catch(e: NetworkException) {
+            //retry after 10s
+            Thread.sleep(10000)
+            process(invoice)
+        }
+        return complete
+    }
 }
+
