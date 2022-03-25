@@ -1,88 +1,59 @@
-## Antaeus
+# Antaeus Pleo Coding Challenge 
 
-Antaeus (/ænˈtiːəs/), in Greek mythology, a giant of Libya, the son of the sea god Poseidon and the Earth goddess Gaia. He compelled all strangers who were passing through the country to wrestle with him. Whenever Antaeus touched the Earth (his mother), his strength was renewed, so that even if thrown to the ground, he was invincible. Heracles, in combat with him, discovered the source of his strength and, lifting him up from Earth, crushed him to death.
+In this markdown file I will go over my solution for Pleo's Backend Coding Challenge.
 
-Welcome to our challenge.
+## Altered Classes and Functions
 
-## The challenge
+### AntaeusDal.kt:
 
-As most "Software as a Service" (SaaS) companies, Pleo needs to charge a subscription fee every month. Our database contains a few invoices for the different markets in which we operate. Your task is to build the logic that will schedule payment of those invoices on the first of the month. While this may seem simple, there is space for some decisions to be taken and you will be expected to justify them.
+*  deleteInvoice(invoice: Invoice)
+*  fetchPending(): List<<Invoice>Invoice>
+*  markPaid(invoice: Invoice)
 
-## Instructions
+### BillingService.kt:
 
-Fork this repo with your solution. Ideally, we'd like to see your progression through commits, and don't forget to update the README.md to explain your thought process.
+* paySubscriptions(dal: AntaeusDal)
+* process(invoice: Invoice, dal: AntaeusDal)
 
-Please let us know how long the challenge takes you. We're not looking for how speedy or lengthy you are. It's just really to give us a clearer idea of what you've produced in the time you decided to take. Feel free to go as big or as small as you want.
+### AntaeusApp.kt:
 
-## Developing
+* main()
 
-Requirements:
-- \>= Java 11 environment
+## Solution (Explained)
 
-Open the project using your favorite text editor. If you are using IntelliJ, you can open the `build.gradle.kts` file and it is gonna setup the project in the IDE for you.
+Preconditions: Invoices with PENDING status are inserted into the database prior to the first of the month for each customer.
 
-### Building
+Postconditions: All invalid invoices are removed, all valid and payable invoices are processed, and all valid but non-payable invoices (i.e. invoices for which the customer has insufficient balance to pay) are unchanged. 
 
-```
-./gradlew build
-```
 
-### Running
+To schedule this periodic job, I make use of Kotlin's concurrency package, specifically the scheduleAtFixedRate function. The scheduler logic is defined in AntaeusApp.main(), and calls a function paySubscriptions() which is defined in the BillingService class. 
 
-There are 2 options for running Anteus. You either need libsqlite3 or docker. Docker is easier but requires some docker knowledge. We do recommend docker though.
+The paySubscriptions() functions relies on a function I declared in the DAL, fetchPending(), which is similar to fetchInvoices(), except that it only selects invoices which have a status of Pending. This is done to reduce runtime; as the system grows, there will be a growing number of paid invoices which are not relevant in the scope of this operation, and it is wasteful to construct Invoice objects for database entries which are not useful to us. Peforming an SQL Select Where operation reduces the number of database entries we have to deal with and leads to more better performance. 
 
-*Running Natively*
+The paySubscriptions() function then iterates through all of the pending invoices, and sends them along to the process() function. The process function attempts to charge the customer using the PaymentProvider's charge function, and includes exception handling for the various exceptions defined in the PaymentProvider class: 
 
-Native java with sqlite (requires libsqlite3):
+* CustomerNotFoundException - in this case we can assume a customer no longer exists (or never has), and therefore their pending invoices are no longer relevant. When this exception is encountered, the invoice is deleted. 
+* CurrencyMismatchException - When this exception is encountered, a new invoice is created in the database, with all the same information from the old invoice, except with a new currency to reflect the customer's chosen currency. The invoice is then fed back into the process() function to be retried. This solution of course assumes that prices are the same across different markets. 
+* NetworkException - An assumption is made here that this exception occurs due to a temporary network issue, and therefore the thread is put to sleep for 5 seconds and then the transaction is retried. 
 
-If you use homebrew on MacOS `brew install sqlite`.
+## Design Decisions (and Implications) 
 
-```
-./gradlew run
-```
+### Task Scheduling
 
-*Running through docker*
+One of the goals of this implementation was to not introduce any new external dependencies to the system. For this reason, Kotlin's concurrency package was used. The way the task is scheduled is that it is executed when the system starts up, and then in intervals of exactly 24 hours thereafter. The task runs as a background process on a separate thread, so it should not interfere with the rest of the system's functions. 
 
-Install docker for your platform
+The reason this task is scheduled to be run every 24 hours is that Kotlin's internal scheduling capabilities only allow for jobs to be scheduled with a predetermined period; since months have varying durations, it is not possible to find such a period, and all solutions require unnecessarily complicated workarounds that could lead to more unexpected behaviours.
 
-```
-docker build -t antaeus
-docker run antaeus
-```
+The paySubscriptions() functions checks whether it is the first day of the month, if it is not, the function simply returns without doing any work. Since checking the date is quite a light task computationally, and due to the reduction in complexity that this approach allows, this implementation was chosen. 
 
-### App Structure
-The code given is structured as follows. Feel free however to modify the structure to fit your needs.
-```
-├── buildSrc
-|  | gradle build scripts and project wide dependency declarations
-|  └ src/main/kotlin/utils.kt 
-|      Dependencies
-|
-├── pleo-antaeus-app
-|       main() & initialization
-|
-├── pleo-antaeus-core
-|       This is probably where you will introduce most of your new code.
-|       Pay attention to the PaymentProvider and BillingService class.
-|
-├── pleo-antaeus-data
-|       Module interfacing with the database. Contains the database 
-|       models, mappings and access layer.
-|
-├── pleo-antaeus-models
-|       Definition of the Internal and API models used throughout the
-|       application.
-|
-└── pleo-antaeus-rest
-        Entry point for HTTP REST API. This is where the routes are defined.
-```
+Another benefit of this system of task scheduling is that temporary system outages should not have any effect on the processing of invoices (unless of course the system is down for the whole day on the 1st of the month), since the paySubscriptions() function is called as soon as the system is started, and then every 24 hours, we do not have to set a pre-determined time for this task to be run, and therefore we don't run the risk that the system is down during the time we set previously (i.e. we will never miss a task as long as the system has at least some uptime during the 1st day of the month). In the worst case, we can have a situation in which this task is run multiple times on the 1st of the month. Given the postconditions specified above, however, this would most likely be a good thing rather than a bad thing, since it would give the system a chance to retry valid invoices for which the customer was not able to pay previously. 
 
-### Main Libraries and dependencies
-* [Exposed](https://github.com/JetBrains/Exposed) - DSL for type-safe SQL
-* [Javalin](https://javalin.io/) - Simple web framework (for REST)
-* [kotlin-logging](https://github.com/MicroUtils/kotlin-logging) - Simple logging framework for Kotlin
-* [JUnit 5](https://junit.org/junit5/) - Testing framework
-* [Mockk](https://mockk.io/) - Mocking library
-* [Sqlite3](https://sqlite.org/index.html) - Database storage engine
+### Exception Handling
 
-Happy hacking 😁!
+* CustomerNotFoundException - 
+* CurrencyMismatchException - 
+* NetworkException - 
+
+
+### DAL Functions 
+

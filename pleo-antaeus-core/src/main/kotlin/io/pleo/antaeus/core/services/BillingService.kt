@@ -23,32 +23,40 @@ class BillingService(
         //get invoices, process
         val invoices = dal.fetchPending()
         for (invoice in invoices) {
-            var complete = process(invoice)
-            if (complete) {
-                dal.markPaid(invoice)
-            }
+            //process invoice
+            var complete = process(invoice, dal)
+            //var complete is of type Boolean and indicates whether the charge was successful
         }
     }
 
 
-    private fun process(invoice: Invoice): Boolean {
+    private fun process(invoice: Invoice, dal: AntaeusDal): Boolean {
         var complete = false
         try {
             complete = paymentProvider.charge(invoice)
-            return complete
         }
         catch(e: CustomerNotFoundException) {
             //do nothing/delete invoice
-            println("handle")
+            dal.deleteInvoice(invoice)
+            return false
         }
         catch(e: CurrencyMismatchException) {
-            //fix currency, try again
-            println("handle")
+            //create new invoice with correct currency, try again
+            val customer = dal.fetchCustomer(invoice.customerId)
+            if (customer != null && invoice.amount.currency != customer.currency) {
+                val money = Money(value=invoice.amount.value, currency=customer.currency)
+                dal.deleteInvoice(invoice)
+                process(dal.createInvoice(money, customer)!!, dal)
+            }
         }
         catch(e: NetworkException) {
-            //retry after 10s
-            Thread.sleep(10000)
-            process(invoice)
+            //retry after 5s
+            Thread.sleep(5000)
+            process(invoice, dal)
+        }
+        if (complete) {
+            //update invoice in the db to reflect that the payment is successful
+            dal.markPaid(invoice)
         }
         return complete
     }

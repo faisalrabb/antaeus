@@ -79,7 +79,7 @@ class AntaeusDal(private val db: Database) {
     }
 
     fun markPaid(invoice: Invoice) {
-        val id = transaction(db){
+        transaction(db){
             InvoiceTable.update ({InvoiceTable.id eq invoice.id}){
                 it[status] = "PAID"
             }
@@ -91,6 +91,12 @@ class AntaeusDal(private val db: Database) {
             InvoiceTable
                     .select{InvoiceTable.status eq "PENDING"}
                     .map { it.toInvoice() }
+        }
+    }
+
+    fun deleteInvoice(invoice: Invoice){
+        transaction(db) {
+            InvoiceTable.deleteWhere { InvoiceTable.id eq invoice.id}
         }
     }
 }
