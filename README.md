@@ -32,7 +32,7 @@ The paySubscriptions() functions relies on a function I declared in the DAL, fet
 
 The paySubscriptions() function iterates through all of the pending invoices, and sends them along to the process() function. The process function attempts to charge the customer using the PaymentProvider's charge function, and handles the various exceptions defined in the PaymentProvider class:
 
-* CustomerNotFoundException - in this case we assume a customer no longer exists (or never has), and therefore their pending invoices are no longer relevant.
+* CustomerNotFoundException - in this case we assume a customer no longer exists (or never has), and therefore their pending invoices are no longer relevant. The invoice is deleted.
 * CurrencyMismatchException - When this exception is encountered, a new invoice is created in the database, with all the same information from the old invoice, except with a new currency to reflect the customer's chosen currency. The invoice is then fed back into the process() function to be retried.
 * NetworkException - An assumption is made here that this exception occurs due to a temporary network issue, and therefore the thread is put to sleep for 5 seconds and then the transaction is retried.
 

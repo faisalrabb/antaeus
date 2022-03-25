@@ -80,7 +80,7 @@ class AntaeusDal(private val db: Database) {
 
     fun markPaid(invoice: Invoice) {
         transaction(db){
-            InvoiceTable.update ({InvoiceTable.id eq invoice.id}){
+            InvoiceTable.update ({InvoiceTable.id.eq(invoice.id)}){
                 it[status] = "PAID"
             }
         }
@@ -89,14 +89,14 @@ class AntaeusDal(private val db: Database) {
     fun fetchPending(): List<Invoice> {
         return transaction(db) {
             InvoiceTable
-                    .select{InvoiceTable.status eq "PENDING"}
+                    .select{InvoiceTable.status.eq("PENDING")}
                     .map { it.toInvoice() }
         }
     }
 
     fun deleteInvoice(invoice: Invoice){
         transaction(db) {
-            InvoiceTable.deleteWhere { InvoiceTable.id eq invoice.id}
+            InvoiceTable.deleteWhere { InvoiceTable.id.eq(invoice.id)}
         }
     }
 }
